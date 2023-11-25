@@ -106,10 +106,38 @@ def compute_ppl(opts, num_samples, epsilon, space, sampling, crop, batch_size, j
 
     # Sampling loop.
     dist = []
+
+    type = opts.additional_kwargs.get("type")
+    print(f"Eval label type: {type}")
+
     progress = opts.progress.sub(tag='ppl sampling', num_items=num_samples)
     for batch_start in range(0, num_samples, batch_size * opts.num_gpus):
         progress.update(batch_start)
-        c = [dataset.get_label(np.random.randint(len(dataset))) for _i in range(batch_size)]
+        # Original evaluation
+        if type is None:
+            c = [dataset.get_label(np.random.randint(len(dataset))) for _i in range(batch_size)]
+        # Generate frontal label only
+        elif type=="frontal":
+            onehot = np.zeros((2,), dtype=np.float32)
+            onehot[0] = 1
+            c = [onehot for _ in range(batch_size)]
+        # Generate profile label only
+        elif type=="profile":
+            onehot = np.zeros((2,), dtype=np.float32)
+            onehot[1] = 1
+            c = [onehot for _ in range(batch_size)]
+        # Generate frontal/profile same as FFHQ+LPFF distribution
+        elif type=="lpff":
+            N_FRONTAL = 70000
+            N_TOTAL = 89588
+            p_0 = N_FRONTAL/N_TOTAL
+            p = [p_0, 1-p_0]
+            c = []
+            for _ in range(batch_size):
+                onehot = np.zeros((2,), dtype=np.float32)
+                label = np.random.choice([0,1], 1, p=p)[0]
+                onehot[label] = 1
+                c.append(onehot)
         c = torch.from_numpy(np.stack(c)).pin_memory().to(opts.device)
         x = sampler(c)
         for src in range(opts.num_gpus):

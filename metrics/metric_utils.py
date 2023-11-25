@@ -19,7 +19,7 @@ import dnnlib
 #----------------------------------------------------------------------------
 
 class MetricOptions:
-    def __init__(self, G=None, G_kwargs={}, dataset_kwargs={}, num_gpus=1, rank=0, device=None, progress=None, cache=True):
+    def __init__(self, G=None, G_kwargs={}, dataset_kwargs={}, num_gpus=1, rank=0, device=None, progress=None, cache=True, additional_kwargs={}):
         assert 0 <= rank < num_gpus
         self.G              = G
         self.G_kwargs       = dnnlib.EasyDict(G_kwargs)
@@ -29,6 +29,7 @@ class MetricOptions:
         self.device         = device if device is not None else torch.device('cuda', rank)
         self.progress       = progress.sub() if progress is not None and rank == 0 else ProgressMonitor()
         self.cache          = cache
+        self.additional_kwargs = additional_kwargs
 
 #----------------------------------------------------------------------------
 
@@ -256,12 +257,38 @@ def compute_feature_stats_for_generator(opts, detector_url, detector_kwargs, rel
     progress = opts.progress.sub(tag='generator features', num_items=stats.max_items, rel_lo=rel_lo, rel_hi=rel_hi)
     detector = get_feature_detector(url=detector_url, device=opts.device, num_gpus=opts.num_gpus, rank=opts.rank, verbose=progress.verbose)
 
+    type = opts.additional_kwargs.get("type")
+    print(f"Eval label type: {type}")
     # Main loop.
     while not stats.is_full():
         images = []
         for _i in range(batch_size // batch_gen):
             z = torch.randn([batch_gen, G.z_dim], device=opts.device)
-            c = [dataset.get_label(np.random.randint(len(dataset))) for _i in range(batch_gen)]
+            # Original evaluation
+            if type is None:
+                c = [dataset.get_label(np.random.randint(len(dataset))) for _ in range(batch_gen)]
+            # Generate frontal label only
+            elif type=="frontal":
+                onehot = np.zeros((2,), dtype=np.float32)
+                onehot[0] = 1
+                c = [onehot for _ in range(batch_gen)]
+            # Generate profile label only
+            elif type=="profile":
+                onehot = np.zeros((2,), dtype=np.float32)
+                onehot[1] = 1
+                c = [onehot for _ in range(batch_gen)]
+            # Generate frontal/profile same as FFHQ+LPFF distribution
+            elif type=="lpff":
+                N_FRONTAL = 70000
+                N_TOTAL = 89588
+                p_0 = N_FRONTAL/N_TOTAL
+                p = [p_0, 1-p_0]
+                c = []
+                for _ in range(batch_gen):
+                    onehot = np.zeros((2,), dtype=np.float32)
+                    label = np.random.choice([0,1], 1, p=p)[0]
+                    onehot[label] = 1
+                    c.append(onehot)
             c = torch.from_numpy(np.stack(c)).pin_memory().to(opts.device)
             images.append(run_generator(z, c))
         images = torch.cat(images)

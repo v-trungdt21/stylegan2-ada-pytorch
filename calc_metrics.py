@@ -92,8 +92,9 @@ class CommaSeparatedList(click.ParamType):
 @click.option('--mirror', help='Whether the dataset was augmented with x-flips during training [default: look up]', type=bool, metavar='BOOL')
 @click.option('--gpus', help='Number of GPUs to use', type=int, default=1, metavar='INT', show_default=True)
 @click.option('--verbose', help='Print optional information', type=bool, default=True, metavar='BOOL', show_default=True)
+@click.option('--eval_type', help='Eval type: normal, frontal-label only, profile-label only, LPFF distribution', default="normal", type=click.Choice(['normal', 'frontal', 'profile', 'lpff']))
 
-def calc_metrics(ctx, network_pkl, metrics, data, mirror, gpus, verbose):
+def calc_metrics(ctx, network_pkl, metrics, data, mirror, gpus, verbose, eval_type):
     """Calculate quality metrics for previous training run or pretrained network pickle.
 
     Examples:
@@ -153,6 +154,11 @@ def calc_metrics(ctx, network_pkl, metrics, data, mirror, gpus, verbose):
         args.dataset_kwargs = dnnlib.EasyDict(network_dict['training_set_kwargs'])
     else:
         ctx.fail('Could not look up dataset options; please specify --data')
+    
+    if eval_type == "normal":
+        args.additional_kwargs = dict(type=None)
+    else:
+        args.additional_kwargs = dict(type=eval_type)
 
     # Finalize dataset options.
     args.dataset_kwargs.resolution = args.G.img_resolution
